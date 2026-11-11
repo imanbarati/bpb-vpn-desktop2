@@ -1,0 +1,8 @@
+{
+  "name": "BPB VPN",
+  "description": "Anti-censorship VPN client for Android with Xray, VLESS, VMess, WARP, TLS Fragmentation, Noise obfuscation, and Cloudflare Worker routing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
