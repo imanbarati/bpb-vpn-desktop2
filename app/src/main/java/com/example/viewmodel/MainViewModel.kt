@@ -16,6 +16,8 @@ import com.example.model.LogEntry
 import com.example.model.RoutingSettings
 import com.example.model.ServerProfile
 import com.example.model.VpnStatus
+import com.example.service.BatteryDrainMonitor
+import com.example.service.BatteryDrainStats
 import com.example.service.CleanIpResult
 import com.example.service.CleanIpScanner
 import com.example.service.MtuProbeStep
@@ -51,6 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val connectionState: StateFlow<ConnectionState> = VpnController.connectionState
     val bandwidthStats: StateFlow<BandwidthStats> = VpnController.bandwidthStats
     val logs: StateFlow<List<LogEntry>> = VpnController.logs
+    val batteryStats: StateFlow<BatteryDrainStats> = BatteryDrainMonitor.stats
 
     val selectedServer: StateFlow<ServerProfile?> = combine(servers, activeServerId) { serverList, id ->
         serverList.firstOrNull { it.id == id } ?: serverList.firstOrNull()
@@ -209,6 +212,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             updated.add(packageName)
         }
         updateRouting(current.copy(selectedPackages = updated))
+    }
+
+    private var hasTriggeredLaunchConnect = false
+
+    fun checkAndTriggerConnectOnLaunch(context: Context, onRequestPermission: (android.content.Intent) -> Unit) {
+        if (hasTriggeredLaunchConnect) return
+        hasTriggeredLaunchConnect = true
+
+        val settings = generalSettings.value
+        if (settings.connectOnLaunch && connectionState.value.status == VpnStatus.DISCONNECTED) {
+            val server = selectedServer.value
+            if (server != null) {
+                val prepareIntent = android.net.VpnService.prepare(context)
+                if (prepareIntent != null) {
+                    onRequestPermission(prepareIntent)
+                } else {
+                    toggleVpn(context)
+                }
+                VpnController.log("STARTUP", "Triggered 'Connect on Launch' for server: ${server.name}")
+            }
+        }
+    }
+
+    fun triggerTestBatteryAlert(context: Context) {
+        BatteryDrainMonitor.triggerTestAlert(context)
     }
 
     fun updateGeneral(settings: GeneralSettings) {

@@ -128,13 +128,15 @@ fun MainAppContent(viewModel: MainViewModel) {
     val isWizardCompleted by viewModel.isWizardCompleted.collectAsState()
     val lowestLatencyServerId by viewModel.lowestLatencyServerId.collectAsState()
     val isPeriodicPingRunning by viewModel.isPeriodicPingRunning.collectAsState()
+    val batteryStats by viewModel.batteryStats.collectAsState()
 
-    // Show setup wizard on first launch
-    remember(isWizardCompleted) {
-        if (!isWizardCompleted) {
-            showSetupWizardDialog = true
+    // Handle navigation from battery alert notification
+    val activity = context as? Activity
+    androidx.compose.runtime.LaunchedEffect(activity?.intent) {
+        val navTarget = activity?.intent?.getStringExtra("NAVIGATE_TO")
+        if (navTarget == "SETTINGS") {
+            currentTab = NavigationTab.SETTINGS
         }
-        true
     }
 
     // Android VpnService permission launcher
@@ -155,6 +157,21 @@ fun MainAppContent(viewModel: MainViewModel) {
         } else {
             viewModel.toggleVpn(ctx)
         }
+    }
+
+    // Trigger 'Connect on Launch' upon app startup if enabled in SharedPreferences
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.checkAndTriggerConnectOnLaunch(context) { prepareIntent ->
+            vpnPermissionLauncher.launch(prepareIntent)
+        }
+    }
+
+    // Show setup wizard on first launch
+    remember(isWizardCompleted) {
+        if (!isWizardCompleted) {
+            showSetupWizardDialog = true
+        }
+        true
     }
 
     Scaffold(
@@ -283,7 +300,9 @@ fun MainAppContent(viewModel: MainViewModel) {
                     NavigationTab.SETTINGS -> {
                         SettingsScreen(
                             generalSettings = generalSettings,
+                            batteryStats = batteryStats,
                             onUpdateGeneral = { viewModel.updateGeneral(it) },
+                            onTriggerTestBatteryAlert = { viewModel.triggerTestBatteryAlert(context) },
                             onLaunchSetupWizard = { showSetupWizardDialog = true }
                         )
                     }

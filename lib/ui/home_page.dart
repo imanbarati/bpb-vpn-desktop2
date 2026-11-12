@@ -6,6 +6,10 @@ import '../services/vpn_channel.dart';
 import 'widgets/log_overlay.dart';
 import 'widgets/speed_chart_fl.dart';
 
+import '../services/battery_monitor_service.dart';
+import '../services/settings_service.dart';
+import 'settings_page.dart';
+
 /// BPB VPN Home Screen.
 /// Displays real-time download and upload speeds using 'fl_chart',
 /// active connection status, metrics, and troubleshooting log overlay.
@@ -22,12 +26,14 @@ class _HomePageState extends State<HomePage> {
   final VpnService _vpnService = VpnService();
   final ThroughputMonitorService _throughputService = ThroughputMonitorService();
   final ConnectivityTesterService _connectivityTester = ConnectivityTesterService();
+  final SettingsService _settingsService = SettingsService();
 
   StreamSubscription? _statusSubscription;
   StreamSubscription? _speedSubscription;
   StreamSubscription? _settingsSubscription;
 
   bool _isConnected = false;
+  bool _hasCheckedLaunchConnect = false;
   SpeedTelemetry _currentTelemetry = SpeedTelemetry(
     downloadSpeedBps: 0.0,
     uploadSpeedBps: 0.0,
@@ -41,6 +47,20 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _subscribeServices();
+    _checkConnectOnLaunch();
+  }
+
+  Future<void> _checkConnectOnLaunch() async {
+    if (_hasCheckedLaunchConnect) return;
+    _hasCheckedLaunchConnect = true;
+
+    final settings = await _settingsService.loadSettings();
+    if (settings.connectOnLaunch && !_vpnService.isRunning) {
+      await Future.delayed(const Duration(milliseconds: 600));
+      if (mounted && !_vpnService.isRunning) {
+        await _toggleConnection();
+      }
+    }
   }
 
   void _subscribeServices() {
@@ -168,6 +188,16 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: cyan, size: 20),
+            tooltip: 'Preferences & Battery Guard',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
         ],
       ),
       body: SingleChildScrollView(

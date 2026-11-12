@@ -52,6 +52,11 @@ class BpbVpnService : VpnService() {
 
             vpnInterface = builder.establish()
             VpnController.log("VPN_SERVICE", "TUN interface established with MTU $mtu")
+
+            // Start background battery monitoring with user-configured power threshold
+            val threshold = (application as? com.example.BpbApplication)
+                ?.preferencesRepository?.generalSettings?.value?.batteryDrainThresholdPercent ?: 3
+            BatteryDrainMonitor.startMonitoring(this, thresholdPercent = threshold)
         } catch (e: Exception) {
             VpnController.log("VPN_SERVICE", "Error establishing TUN: ${e.localizedMessage}")
         }
@@ -59,6 +64,7 @@ class BpbVpnService : VpnService() {
 
     private fun stopTunnel() {
         try {
+            BatteryDrainMonitor.stopMonitoring()
             vpnInterface?.close()
             vpnInterface = null
             stopForeground(STOP_FOREGROUND_REMOVE)

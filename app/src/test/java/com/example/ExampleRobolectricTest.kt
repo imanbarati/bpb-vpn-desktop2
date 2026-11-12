@@ -82,4 +82,42 @@ class ExampleRobolectricTest {
         val inbounds = json.getJSONArray("inbounds")
         assertEquals(2, inbounds.length())
     }
+
+    @Test
+    fun `test connect on launch and battery monitor preferences`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val repo = com.example.data.AppPreferencesRepository(context)
+
+        // Initially false by default
+        assertEquals(false, repo.generalSettings.value.connectOnLaunch)
+        assertEquals(true, repo.generalSettings.value.batteryMonitorEnabled)
+
+        // Update settings
+        repo.setConnectOnLaunch(true)
+        assertEquals(true, repo.generalSettings.value.connectOnLaunch)
+
+        // Verify loaded from SharedPreferences
+        val reloadedRepo = com.example.data.AppPreferencesRepository(context)
+        assertEquals(true, reloadedRepo.generalSettings.value.connectOnLaunch)
+        assertEquals(true, reloadedRepo.generalSettings.value.batteryMonitorEnabled)
+
+        reloadedRepo.setBatteryMonitorEnabled(false)
+        assertEquals(false, reloadedRepo.generalSettings.value.batteryMonitorEnabled)
+    }
+
+    @Test
+    fun `test battery drain monitor test alert and stats`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val monitor = com.example.service.BatteryDrainMonitor
+
+        val level = monitor.getBatteryLevel(context)
+        assertTrue("Battery level should be non-negative", level >= 0)
+
+        // Trigger test alert
+        monitor.triggerTestAlert(context)
+        val stats = monitor.stats.value
+        assertTrue(stats.hasAlerted)
+        assertNotNull(stats.lastAlertMessage)
+        assertTrue(stats.lastAlertMessage!!.contains("Test alert triggered"))
+    }
 }

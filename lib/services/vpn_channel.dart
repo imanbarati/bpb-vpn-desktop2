@@ -17,6 +17,7 @@ class VpnService {
   static const MethodChannel _androidChannel = MethodChannel('com.bpb.vpn/service');
   static const EventChannel _androidLogChannel = EventChannel('com.bpb.vpn/logs');
   static const EventChannel _androidStatusChannel = EventChannel('com.bpb.vpn/status');
+  static const EventChannel _androidThroughputChannel = EventChannel('com.bpb.vpn/throughput');
 
   // Desktop controller for Windows
   final DesktopVpnController _desktopController = DesktopVpnController();
@@ -24,18 +25,36 @@ class VpnService {
 
   final StreamController<String> _logController = StreamController<String>.broadcast();
   final StreamController<bool> _statusController = StreamController<bool>.broadcast();
+  final StreamController<Map<String, int>> _throughputController =
+      StreamController<Map<String, int>>.broadcast();
 
   bool _isRunning = false;
   StreamSubscription? _desktopLogSub;
   StreamSubscription? _desktopStatusSub;
   StreamSubscription? _androidLogSub;
   StreamSubscription? _androidStatusSub;
+  StreamSubscription? _androidThroughputSub;
 
   /// Real-time stream of subprocess output (Xray/Psiphon) or Android VpnService log messages.
   Stream<String> get logs => _logController.stream;
 
   /// Stream of connection state changes (true = connected, false = disconnected).
   Stream<bool> get statusStream => _statusController.stream;
+
+  /// Stream of active VPN tunnel throughput with raw cumulative bytes:
+  /// {'rxBytes': int, 'txBytes': int, 'timestamp': int}
+  Stream<Map<String, int>> get throughputStream => _throughputController.stream;
+
+  /// Emits throughput telemetry data into the stream
+  void emitThroughput({required int rxBytes, required int txBytes}) {
+    if (!_throughputController.isClosed) {
+      _throughputController.add({
+        'rxBytes': rxBytes,
+        'txBytes': txBytes,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    }
+  }
 
   /// Whether the VPN tunnel is currently active.
   bool get isRunning => Platform.isWindows ? _desktopController.isRunning : _isRunning;
@@ -74,6 +93,17 @@ class VpnService {
               final isConnected = event['status'] == 'CONNECTED' || event['connected'] == true;
               _isRunning = isConnected;
               _statusController.add(isConnected);
+            }
+          },
+          onError: (_) {},
+        );
+
+        _androidThroughputSub = _androidThroughputChannel.receiveBroadcastStream().listen(
+          (dynamic data) {
+            if (data is Map) {
+              final rx = (data['rxBytes'] ?? data['rx'] ?? 0) as int;
+              final tx = (data['txBytes'] ?? data['tx'] ?? 0) as int;
+              emitThroughput(rxBytes: rx, txBytes: tx);
             }
           },
           onError: (_) {},
@@ -181,11 +211,13 @@ class VpnService {
     await _desktopStatusSub?.cancel();
     await _androidLogSub?.cancel();
     await _androidStatusSub?.cancel();
+    await _androidThroughputSub?.cancel();
     if (Platform.isWindows) {
       await _desktopController.dispose();
     }
     await _logController.close();
     await _statusController.close();
+    await _throughputController.close();
   }
 }
 

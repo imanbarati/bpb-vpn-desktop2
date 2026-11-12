@@ -58,5 +58,8 @@ data class GeneralSettings(
     val allowLanSharing: Boolean = false,
     val killSwitchEnabled: Boolean = false,
     val autoConnectOnBoot: Boolean = false,
+    val connectOnLaunch: Boolean = false,
+    val batteryMonitorEnabled: Boolean = true,
+    val batteryDrainThresholdPercent: Int = 3,
     val testUrl: String = "https://www.google.com/generate_204"
 )

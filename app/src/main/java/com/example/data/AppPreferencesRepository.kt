@@ -86,7 +86,20 @@ class AppPreferencesRepository(context: Context) {
             .putBoolean(KEY_ALLOW_LAN, settings.allowLanSharing)
             .putBoolean(KEY_KILL_SWITCH, settings.killSwitchEnabled)
             .putBoolean(KEY_AUTO_CONNECT, settings.autoConnectOnBoot)
+            .putBoolean(KEY_CONNECT_ON_LAUNCH, settings.connectOnLaunch)
+            .putBoolean(KEY_BATTERY_MONITOR_ENABLED, settings.batteryMonitorEnabled)
+            .putInt(KEY_BATTERY_DRAIN_THRESHOLD, settings.batteryDrainThresholdPercent)
             .apply()
+    }
+
+    fun setConnectOnLaunch(enabled: Boolean) {
+        val updated = _generalSettings.value.copy(connectOnLaunch = enabled)
+        updateGeneralSettings(updated)
+    }
+
+    fun setBatteryMonitorEnabled(enabled: Boolean) {
+        val updated = _generalSettings.value.copy(batteryMonitorEnabled = enabled)
+        updateGeneralSettings(updated)
     }
 
     fun setWizardCompleted(completed: Boolean) {
@@ -148,7 +161,10 @@ class AppPreferencesRepository(context: Context) {
             httpPort = prefs.getInt(KEY_HTTP_PORT, 10809),
             allowLanSharing = prefs.getBoolean(KEY_ALLOW_LAN, false),
             killSwitchEnabled = prefs.getBoolean(KEY_KILL_SWITCH, false),
-            autoConnectOnBoot = prefs.getBoolean(KEY_AUTO_CONNECT, false)
+            autoConnectOnBoot = prefs.getBoolean(KEY_AUTO_CONNECT, false),
+            connectOnLaunch = prefs.getBoolean(KEY_CONNECT_ON_LAUNCH, false),
+            batteryMonitorEnabled = prefs.getBoolean(KEY_BATTERY_MONITOR_ENABLED, true),
+            batteryDrainThresholdPercent = prefs.getInt(KEY_BATTERY_DRAIN_THRESHOLD, 3)
         )
     }
 
@@ -188,5 +204,8 @@ class AppPreferencesRepository(context: Context) {
         private const val KEY_ALLOW_LAN = "allow_lan"
         private const val KEY_KILL_SWITCH = "kill_switch"
         private const val KEY_AUTO_CONNECT = "auto_connect"
+        private const val KEY_CONNECT_ON_LAUNCH = "connect_on_launch"
+        private const val KEY_BATTERY_MONITOR_ENABLED = "battery_monitor_enabled"
+        private const val KEY_BATTERY_DRAIN_THRESHOLD = "battery_drain_threshold"
     }
 }

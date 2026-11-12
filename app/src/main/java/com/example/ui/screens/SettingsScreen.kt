@@ -59,10 +59,18 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PlayArrow
+import com.example.service.BatteryDrainStats
+
 @Composable
 fun SettingsScreen(
     generalSettings: GeneralSettings,
+    batteryStats: BatteryDrainStats = BatteryDrainStats(),
     onUpdateGeneral: (GeneralSettings) -> Unit,
+    onTriggerTestBatteryAlert: () -> Unit = {},
     onLaunchSetupWizard: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -257,8 +265,91 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. Security & Automation
-        SettingsGroupHeader("SECURITY & AUTOMATION", Icons.Default.Security)
+        // 3. Security & Startup Automation
+        SettingsGroupHeader("SECURITY & STARTUP AUTOMATION", Icons.Default.Security)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(CardBackground)
+                .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
+                .padding(14.dp)
+        ) {
+            Column {
+                // Connect on App Launch Toggle
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "Connect on App Launch", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(CyanPrimary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(text = "AUTO", color = CyanPrimary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Text(
+                            text = "Automatically establishes secure tunnel immediately upon app startup (stored in SharedPreferences)",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Switch(
+                        checked = generalSettings.connectOnLaunch,
+                        onCheckedChange = { en ->
+                            onUpdateGeneral(generalSettings.copy(connectOnLaunch = en))
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = CyanPrimary),
+                        modifier = Modifier.testTag("connect_on_launch_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Auto-Connect on Device Boot
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Auto-Connect on Device Boot", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(text = "Starts the VPN service automatically after phone reboot", color = TextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = generalSettings.autoConnectOnBoot,
+                        onCheckedChange = { en ->
+                            onUpdateGeneral(generalSettings.copy(autoConnectOnBoot = en))
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = CyanPrimary),
+                        modifier = Modifier.testTag("auto_connect_boot_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Kill Switch
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Kill Switch (Block Non-VPN)", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(text = "Disables non-encrypted traffic if tunnel unexpectedly drops", color = TextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = generalSettings.killSwitchEnabled,
+                        onCheckedChange = { en ->
+                            onUpdateGeneral(generalSettings.copy(killSwitchEnabled = en))
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedDisconnect),
+                        modifier = Modifier.testTag("kill_switch")
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 4. Background Battery Service Monitoring
+        SettingsGroupHeader("BACKGROUND BATTERY GUARD", Icons.Default.BatteryAlert)
 
         Box(
             modifier = Modifier
@@ -271,32 +362,153 @@ fun SettingsScreen(
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "Kill Switch (Block Non-VPN)", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(text = "Disables non-encrypted traffic if tunnel unexpectedly drops", color = TextSecondary, fontSize = 11.sp)
+                        Text(
+                            text = "Background Idle Drain Warning",
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Notifies you if the VPN consumes excessive battery while idling in the background",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
                     }
                     Switch(
-                        checked = generalSettings.killSwitchEnabled,
+                        checked = generalSettings.batteryMonitorEnabled,
                         onCheckedChange = { en ->
-                            onUpdateGeneral(generalSettings.copy(killSwitchEnabled = en))
+                            onUpdateGeneral(generalSettings.copy(batteryMonitorEnabled = en))
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = RedDisconnect)
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = AmberWarning),
+                        modifier = Modifier.testTag("battery_monitor_switch")
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "Auto-Connect on Device Boot", color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(text = "Starts the VPN service automatically after reboot", color = TextSecondary, fontSize = 11.sp)
+                // Live Battery Status & Background Telemetry Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF0B1220))
+                        .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Device Battery: ${batteryStats.currentBatteryLevel}%",
+                                color = if (batteryStats.currentBatteryLevel > 20) EmeraldConnected else AmberWarning,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (batteryStats.isCharging) "• Charging ⚡" else "• On Battery",
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text(
+                                text = if (batteryStats.isIdling) "IDLING" else "ACTIVE",
+                                color = if (batteryStats.isIdling) AmberWarning else CyanPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val idleMins = batteryStats.idleDurationSeconds / 60
+                        Text(
+                            text = if (batteryStats.isIdling) {
+                                "VPN idling in background for ${idleMins}m (Power drop: ${batteryStats.batteryDroppedDuringIdle}%)"
+                            } else {
+                                "Tunnel traffic active or offline. Power consumption is within normal limits."
+                            },
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+
+                        if (batteryStats.hasAlerted && batteryStats.lastAlertMessage != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "⚠️ ${batteryStats.lastAlertMessage}",
+                                color = AmberWarning,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Defined Power Threshold Selector
+                        Text(
+                            text = "Excessive Drain Alert Threshold (Idle Power Loss):",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(2, 3, 5, 8).forEach { threshold ->
+                                val isSelected = generalSettings.batteryDrainThresholdPercent == threshold
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) AmberWarning.copy(alpha = 0.2f) else Color(0xFF1E293B))
+                                        .border(1.dp, if (isSelected) AmberWarning else Color.Transparent, RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onUpdateGeneral(generalSettings.copy(batteryDrainThresholdPercent = threshold))
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = "$threshold%",
+                                        color = if (isSelected) AmberWarning else TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Test Notification Trigger Button
+                        Button(
+                            onClick = onTriggerTestBatteryAlert,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1E293B),
+                                contentColor = AmberWarning
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("test_battery_alert_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsActive,
+                                contentDescription = null,
+                                tint = AmberWarning,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Trigger Test Battery Alert Notification",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
-                    Switch(
-                        checked = generalSettings.autoConnectOnBoot,
-                        onCheckedChange = { en ->
-                            onUpdateGeneral(generalSettings.copy(autoConnectOnBoot = en))
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = CyanPrimary)
-                    )
                 }
             }
         }
