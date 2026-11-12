@@ -126,6 +126,8 @@ fun MainAppContent(viewModel: MainViewModel) {
     val mtuProbeStep by viewModel.mtuProbeStep.collectAsState()
     val isScanningMtu by viewModel.isScanningMtu.collectAsState()
     val isWizardCompleted by viewModel.isWizardCompleted.collectAsState()
+    val lowestLatencyServerId by viewModel.lowestLatencyServerId.collectAsState()
+    val isPeriodicPingRunning by viewModel.isPeriodicPingRunning.collectAsState()
 
     // Show setup wizard on first launch
     remember(isWizardCompleted) {
@@ -230,6 +232,9 @@ fun MainAppContent(viewModel: MainViewModel) {
                         ServersScreen(
                             servers = servers,
                             selectedServerId = activeServerId,
+                            lowestLatencyServerId = lowestLatencyServerId,
+                            isPeriodicPingRunning = isPeriodicPingRunning,
+                            onTogglePeriodicPing = { viewModel.togglePeriodicPing() },
                             onSelectServer = { server ->
                                 viewModel.selectServer(server)
                                 currentTab = NavigationTab.HOME

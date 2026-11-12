@@ -51,6 +51,7 @@ import com.example.ui.theme.CardBorder
 import com.example.ui.theme.CyberBackground
 import com.example.ui.theme.CyanPrimary
 import com.example.ui.theme.ElectricBlue
+import com.example.ui.theme.EmeraldConnected
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -59,6 +60,9 @@ import com.example.ui.theme.TextSecondary
 fun ServersScreen(
     servers: List<ServerProfile>,
     selectedServerId: String?,
+    lowestLatencyServerId: String? = null,
+    isPeriodicPingRunning: Boolean = true,
+    onTogglePeriodicPing: () -> Unit = {},
     onSelectServer: (ServerProfile) -> Unit,
     onToggleFavorite: (ServerProfile) -> Unit,
     onDeleteServer: (ServerProfile) -> Unit,
@@ -69,9 +73,10 @@ fun ServersScreen(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedProtocolFilter by remember { mutableStateOf<ProtocolType?>(null) }
+    var sortByLowestLatency by remember { mutableStateOf(false) }
 
-    val filteredServers = remember(servers, searchQuery, selectedProtocolFilter) {
-        servers.filter { server ->
+    val filteredServers = remember(servers, searchQuery, selectedProtocolFilter, sortByLowestLatency) {
+        val filtered = servers.filter { server ->
             val matchesSearch = searchQuery.isBlank() ||
                 server.name.contains(searchQuery, ignoreCase = true) ||
                 server.address.contains(searchQuery, ignoreCase = true) ||
@@ -80,6 +85,11 @@ fun ServersScreen(
             val matchesProtocol = selectedProtocolFilter == null || server.protocol == selectedProtocolFilter
 
             matchesSearch && matchesProtocol
+        }
+        if (sortByLowestLatency) {
+            filtered.sortedBy { if (it.pingMs > 0) it.pingMs else 9999L }
+        } else {
+            filtered
         }
     }
 
@@ -115,30 +125,68 @@ fun ServersScreen(
                     )
                 }
 
-                // Ping All Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(CardBackground)
-                        .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
-                        .clickable { onPingAll() }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .testTag("ping_all_button")
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.NetworkPing,
-                            contentDescription = "Ping All",
-                            tint = CyanPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Auto Ping indicator & toggle
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.15f) else CardBackground)
+                            .border(1.dp, if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(12.dp))
+                            .clickable { onTogglePeriodicPing() }
+                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                            .testTag("auto_ping_toggle")
+                    ) {
                         Text(
-                            text = "Ping All",
-                            color = TextPrimary,
-                            fontSize = 12.sp,
+                            text = if (isPeriodicPingRunning) "Auto-Ping: 20s" else "Auto-Ping: OFF",
+                            color = if (isPeriodicPingRunning) CyanPrimary else TextMuted,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Sort By Latency toggle
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.15f) else CardBackground)
+                            .border(1.dp, if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(12.dp))
+                            .clickable { sortByLowestLatency = !sortByLowestLatency }
+                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                            .testTag("sort_by_latency_button")
+                    ) {
+                        Text(
+                            text = if (sortByLowestLatency) "⚡ Sorted" else "⚡ Sort",
+                            color = if (sortByLowestLatency) EmeraldConnected else TextSecondary,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+
+                    // Ping All Button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(CardBackground)
+                            .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
+                            .clickable { onPingAll() }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag("ping_all_button")
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.NetworkPing,
+                                contentDescription = "Ping All",
+                                tint = CyanPrimary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Ping",
+                                color = TextPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -233,6 +281,7 @@ fun ServersScreen(
                         ServerCard(
                             server = server,
                             isSelected = server.id == selectedServerId,
+                            isLowestLatency = server.id == lowestLatencyServerId,
                             onSelect = { onSelectServer(server) },
                             onToggleFavorite = { onToggleFavorite(server) },
                             onDelete = { onDeleteServer(server) },

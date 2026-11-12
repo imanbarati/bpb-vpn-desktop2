@@ -59,6 +59,7 @@ import com.example.ui.theme.TextSecondary
 fun ServerCard(
     server: ServerProfile,
     isSelected: Boolean,
+    isLowestLatency: Boolean = false,
     onSelect: () -> Unit,
     onToggleFavorite: () -> Unit,
     onDelete: () -> Unit,
@@ -96,14 +97,22 @@ fun ServerCard(
         else -> "🌐"
     }
 
+    val borderColor = when {
+        isLowestLatency -> EmeraldConnected
+        isSelected -> CyanPrimary
+        else -> CardBorder
+    }
+
+    val borderWidth = if (isLowestLatency || isSelected) 1.8.dp else 1.dp
+
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(if (isSelected) CardBackground.copy(alpha = 0.95f) else CardBackground)
             .border(
-                width = if (isSelected) 1.5.dp else 1.dp,
-                color = if (isSelected) CyanPrimary else CardBorder,
+                width = borderWidth,
+                color = borderColor,
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable { onSelect() }
@@ -111,6 +120,20 @@ fun ServerCard(
             .testTag("server_card_${server.id}")
     ) {
         Column {
+            if (isLowestLatency) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(EmeraldConnected.copy(alpha = 0.15f))
+                        .border(1.dp, EmeraldConnected.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(text = "⚡ FASTEST NODE (LOWEST LATENCY)", color = EmeraldConnected, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                }
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -277,12 +300,21 @@ fun ServerCard(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // Ping badge
+                // Ping & Status badge
+                val statusText = when {
+                    server.pingMs in 1..99 -> "Excellent"
+                    server.pingMs in 100..180 -> "Good"
+                    server.pingMs in 181..300 -> "Fair"
+                    server.pingMs > 300 -> "Slow"
+                    else -> "Testing"
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(Color(0xFF0C1425))
+                        .border(1.dp, pingColor.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                         .clickable { onPing() }
                 ) {
@@ -294,7 +326,7 @@ fun ServerCard(
                     )
                     Spacer(modifier = Modifier.width(5.dp))
                     Text(
-                        text = if (server.pingMs > 0) "${server.pingMs} ms" else "--- ms",
+                        text = if (server.pingMs > 0) "${server.pingMs} ms ($statusText)" else "--- ms ($statusText)",
                         color = pingColor,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
