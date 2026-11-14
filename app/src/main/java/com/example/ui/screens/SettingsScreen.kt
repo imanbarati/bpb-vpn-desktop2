@@ -59,10 +59,18 @@ import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.example.service.BatteryDrainStats
 
 @Composable
@@ -72,8 +80,15 @@ fun SettingsScreen(
     onUpdateGeneral: (GeneralSettings) -> Unit,
     onTriggerTestBatteryAlert: () -> Unit = {},
     onLaunchSetupWizard: () -> Unit,
+    onReviewVpnDisclosure: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        onTriggerTestBatteryAlert()
+    }
     val scrollState = rememberScrollState()
 
     Column(
@@ -485,7 +500,16 @@ fun SettingsScreen(
 
                         // Test Notification Trigger Button
                         Button(
-                            onClick = onTriggerTestBatteryAlert,
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    onTriggerTestBatteryAlert()
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    onTriggerTestBatteryAlert()
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF1E293B),
                                 contentColor = AmberWarning
@@ -509,6 +533,43 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Strict VpnService & Play Store Policy Compliance Card
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(CardBackground)
+                .border(1.dp, EmeraldConnected.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                .clickable { onReviewVpnDisclosure() }
+                .padding(14.dp)
+                .testTag("vpn_policy_compliance_card")
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.VerifiedUser,
+                    contentDescription = "Strict VPN Policy",
+                    tint = EmeraldConnected,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Strict VpnService & Play Compliance",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Self-excluded tunnel • IPv6 leak block • Zero storage permissions • Local Photo Picker QR",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
                 }
             }
         }

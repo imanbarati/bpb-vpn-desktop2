@@ -2,6 +2,8 @@ package com.example.service
 
 import android.content.Context
 import android.content.Intent
+import android.net.TrafficStats
+import android.os.Process
 import com.example.model.AntiCensorshipSettings
 import com.example.model.BandwidthStats
 import com.example.model.ConnectionState
@@ -133,6 +135,11 @@ object VpnController {
         val configJson = ConfigGenerator.generateXrayConfig(effectiveServer, effectiveAntiCensorship, routing, general)
         log("XRAY", "Generated core configuration JSON (${configJson.length} bytes)", LogLevel.DEBUG)
 
+        // Share active policy parameters with BpbVpnService before starting foreground tunnel
+        BpbVpnService.pendingRoutingSettings = routing
+        BpbVpnService.pendingGeneralSettings = general
+        BpbVpnService.pendingAntiCensorshipSettings = effectiveAntiCensorship
+
         // Launch Foreground VpnService
         val intent = Intent(context, BpbVpnService::class.java).apply {
             action = BpbVpnService.ACTION_START
@@ -230,29 +237,42 @@ object VpnController {
     private fun startBandwidthTelemetry(server: ServerProfile) {
         statsJob?.cancel()
         statsJob = scope.launch {
-            var sent = 0L
-            var received = 0L
+            val uid = Process.myUid()
+            val startUidRx = TrafficStats.getUidRxBytes(uid).let { if (it >= 0) it else 0L }
+            val startUidTx = TrafficStats.getUidTxBytes(uid).let { if (it >= 0) it else 0L }
+            var prevRxTotal = startUidRx + (BpbVpnService.activeProxyEngine?.totalRxBytes?.get() ?: 0L)
+            var prevTxTotal = startUidTx + (BpbVpnService.activeProxyEngine?.totalTxBytes?.get() ?: 0L)
             val startMillis = System.currentTimeMillis()
 
             while (isActive && _connectionState.value.status == VpnStatus.CONNECTED) {
                 delay(1000)
                 val durationSecs = (System.currentTimeMillis() - startMillis) / 1000
 
-                // Realistic active throughput generation
-                val downSpeed = (1_200_000L..4_800_000L).random() // 1.2 MB/s to 4.8 MB/s
-                val upSpeed = (150_000L..680_000L).random() // 150 KB/s to 680 KB/s
-                received += downSpeed
-                sent += upSpeed
+                val uidRx = TrafficStats.getUidRxBytes(uid).let { if (it >= 0) it else 0L }
+                val uidTx = TrafficStats.getUidTxBytes(uid).let { if (it >= 0) it else 0L }
+                val proxyRx = BpbVpnService.activeProxyEngine?.totalRxBytes?.get() ?: 0L
+                val proxyTx = BpbVpnService.activeProxyEngine?.totalTxBytes?.get() ?: 0L
 
-                val basePing = if (server.pingMs > 0) server.pingMs else 85L
-                val currentPing = (basePing - 8 + (0..16).random()).coerceAtLeast(15L)
+                val currentRxTotal = uidRx + proxyRx + BpbVpnService.tunRxBytes.get()
+                val currentTxTotal = uidTx + proxyTx
+
+                val downSpeed = (currentRxTotal - prevRxTotal).coerceAtLeast(0L)
+                val upSpeed = (currentTxTotal - prevTxTotal).coerceAtLeast(0L)
+
+                prevRxTotal = currentRxTotal
+                prevTxTotal = currentTxTotal
+
+                val totalReceived = (currentRxTotal - startUidRx).coerceAtLeast(0L)
+                val totalSent = (currentTxTotal - startUidTx).coerceAtLeast(0L)
+
+                val measuredPing = if (server.pingMs > 0) server.pingMs else 0L
 
                 _bandwidthStats.value = BandwidthStats(
                     downloadSpeedBps = downSpeed,
                     uploadSpeedBps = upSpeed,
-                    totalReceivedBytes = received,
-                    totalSentBytes = sent,
-                    pingMs = currentPing,
+                    totalReceivedBytes = totalReceived,
+                    totalSentBytes = totalSent,
+                    pingMs = measuredPing,
                     sessionDurationSeconds = durationSecs
                 )
             }

@@ -26,8 +26,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material.icons.filled.NetworkPing
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Upload
@@ -79,6 +81,8 @@ fun HomeScreen(
     onNavigateToServers: () -> Unit,
     onNavigateToAntiCensorship: () -> Unit,
     onNavigateToRouting: () -> Unit,
+    onOpenSpeedTest: () -> Unit = {},
+    onOpenQrScanner: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -237,7 +241,49 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Pre-Connection Quick Actions: Speed Test & QR Import
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(EmeraldConnected.copy(alpha = 0.12f))
+                    .border(1.dp, EmeraldConnected.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .clickable { onOpenSpeedTest() }
+                    .padding(vertical = 10.dp, horizontal = 10.dp)
+                    .testTag("home_speed_test_button")
+            ) {
+                Icon(Icons.Default.Speed, contentDescription = null, tint = EmeraldConnected, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Speed Test", color = EmeraldConnected, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(CyanPrimary.copy(alpha = 0.12f))
+                    .border(1.dp, CyanPrimary.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .clickable { onOpenQrScanner() }
+                    .padding(vertical = 10.dp, horizontal = 10.dp)
+                    .testTag("home_scan_qr_button")
+            ) {
+                Icon(Icons.Default.QrCodeScanner, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Scan QR", color = CyanPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         // Real-Time Speed & Telemetry Grid
         val downSpeedStr = formatSpeed(bandwidthStats.downloadSpeedBps)

@@ -22,6 +22,10 @@ import com.example.service.CleanIpResult
 import com.example.service.CleanIpScanner
 import com.example.service.MtuProbeStep
 import com.example.service.MtuScanner
+import com.example.service.NetworkSpeedTester
+import com.example.service.QrCodeDecoder
+import com.example.service.SpeedTestSessionState
+import com.example.service.SpeedTestStatus
 import com.example.service.UriParser
 import com.example.service.VpnController
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +53,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val routingSettings: StateFlow<RoutingSettings> = prefsRepo.routingSettings
     val generalSettings: StateFlow<GeneralSettings> = prefsRepo.generalSettings
     val isWizardCompleted: StateFlow<Boolean> = prefsRepo.isWizardCompleted
+    val hasAcceptedVpnDisclosure: StateFlow<Boolean> = prefsRepo.hasAcceptedVpnDisclosure
 
     val connectionState: StateFlow<ConnectionState> = VpnController.connectionState
     val bandwidthStats: StateFlow<BandwidthStats> = VpnController.bandwidthStats
@@ -79,7 +84,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isPeriodicPingRunning = MutableStateFlow(true)
     val isPeriodicPingRunning: StateFlow<Boolean> = _isPeriodicPingRunning.asStateFlow()
 
+    private val _speedTestSession = MutableStateFlow(SpeedTestSessionState())
+    val speedTestSession: StateFlow<SpeedTestSessionState> = _speedTestSession.asStateFlow()
+
     private var periodicPingJob: kotlinx.coroutines.Job? = null
+    private var speedTestJob: kotlinx.coroutines.Job? = null
 
     init {
         loadInstalledApps()
@@ -94,16 +103,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val currentServers = servers.value
                 if (currentServers.isNotEmpty()) {
                     currentServers.forEach { server ->
-                        val rtt = VpnController.pingHost(server.address, server.port, 1200)
-                        val finalPing = if (rtt > 0) rtt else when (server.protocol) {
-                            com.example.model.ProtocolType.WARP -> (38L..55L).random()
-                            com.example.model.ProtocolType.VLESS -> (65L..95L).random()
-                            com.example.model.ProtocolType.CLOUDFLARE_WORKER -> (85L..125L).random()
-                            com.example.model.ProtocolType.TROJAN -> (90L..140L).random()
-                            com.example.model.ProtocolType.VMESS -> (120L..170L).random()
-                            else -> (110L..190L).random()
-                        }
-                        serverDao.updatePing(server.id, finalPing)
+                        val targetHost = server.customCleanIp.ifBlank { server.address }
+                        val rtt = VpnController.pingHost(targetHost, server.port, 1200)
+                        serverDao.updatePing(server.id, rtt)
                     }
                 }
                 kotlinx.coroutines.delay(20_000) // Periodic refresh every 20 seconds
@@ -173,24 +175,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun pingServer(server: ServerProfile) {
         viewModelScope.launch(Dispatchers.IO) {
-            val rtt = VpnController.pingHost(server.address, server.port)
-            val finalPing = if (rtt > 0) rtt else (40L..180L).random()
-            serverDao.updatePing(server.id, finalPing)
+            val targetHost = server.customCleanIp.ifBlank { server.address }
+            val rtt = VpnController.pingHost(targetHost, server.port)
+            serverDao.updatePing(server.id, rtt)
         }
     }
 
     fun pingAllServers() {
         viewModelScope.launch(Dispatchers.IO) {
             servers.value.forEach { server ->
-                val rtt = VpnController.pingHost(server.address, server.port)
-                val finalPing = if (rtt > 0) rtt else (40L..180L).random()
-                serverDao.updatePing(server.id, finalPing)
+                val targetHost = server.customCleanIp.ifBlank { server.address }
+                val rtt = VpnController.pingHost(targetHost, server.port)
+                serverDao.updatePing(server.id, rtt)
             }
         }
     }
 
+    fun startNetworkSpeedTest(tester: NetworkSpeedTester = NetworkSpeedTester()) {
+        speedTestJob?.cancel()
+        val snapshot = servers.value
+        if (snapshot.isEmpty()) return
+
+        speedTestJob = viewModelScope.launch {
+            VpnController.log("SPEED_TEST", "Starting Retrofit + Coroutines speed benchmark across ${snapshot.size} servers")
+            tester.benchmarkServers(snapshot).collect { session ->
+                _speedTestSession.value = session
+                session.results
+                    .filter { it.status == SpeedTestStatus.COMPLETED || it.status == SpeedTestStatus.FAILED }
+                    .forEach { result ->
+                        serverDao.updatePing(result.serverId, result.pingMs)
+                    }
+            }
+            val fastest = _speedTestSession.value.results.firstOrNull { it.serverId == _speedTestSession.value.fastestServerId }
+            if (fastest != null) {
+                VpnController.log(
+                    "SPEED_TEST",
+                    "Fastest node: ${fastest.serverName} (${fastest.pingMs} ms, DL=${String.format(java.util.Locale.US, "%.1f", fastest.downloadMbps)} Mbps)"
+                )
+            }
+        }
+    }
+
+    fun stopNetworkSpeedTest() {
+        speedTestJob?.cancel()
+        speedTestJob = null
+        _speedTestSession.value = _speedTestSession.value.copy(isRunning = false, currentServerName = null)
+    }
+
+    fun selectFastestSpeedTestServer(): ServerProfile? {
+        val fastestId = _speedTestSession.value.fastestServerId ?: lowestLatencyServerId.value ?: return null
+        val target = servers.value.firstOrNull { it.id == fastestId } ?: return null
+        selectServer(target)
+        VpnController.log("SPEED_TEST", "Selected fastest server before connecting: ${target.name} (${target.pingMs} ms)")
+        return target
+    }
+
     fun importFromUri(rawUri: String): Boolean {
-        val profile = UriParser.parse(rawUri) ?: return false
+        val extracted = QrCodeDecoder.extractSupportedConfigUri(rawUri) ?: rawUri
+        val profile = UriParser.parse(extracted) ?: return false
         addServer(profile)
         return true
     }
@@ -245,6 +287,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setWizardCompleted() {
         prefsRepo.setWizardCompleted(true)
+    }
+
+    fun acceptVpnDisclosure() {
+        prefsRepo.setVpnDisclosureAccepted(true)
     }
 
     fun clearLogs() {

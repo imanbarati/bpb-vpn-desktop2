@@ -40,6 +40,11 @@ class AppPreferencesRepository(context: Context) {
     )
     val isWizardCompleted: StateFlow<Boolean> = _isWizardCompleted.asStateFlow()
 
+    private val _hasAcceptedVpnDisclosure = MutableStateFlow(
+        prefs.getBoolean(KEY_VPN_DISCLOSURE_ACCEPTED, false)
+    )
+    val hasAcceptedVpnDisclosure: StateFlow<Boolean> = _hasAcceptedVpnDisclosure.asStateFlow()
+
     fun setActiveServerId(id: String?) {
         _activeServerId.value = id
         prefs.edit().putString(KEY_ACTIVE_SERVER_ID, id).apply()
@@ -107,6 +112,11 @@ class AppPreferencesRepository(context: Context) {
         prefs.edit().putBoolean(KEY_WIZARD_COMPLETED, completed).apply()
     }
 
+    fun setVpnDisclosureAccepted(accepted: Boolean) {
+        _hasAcceptedVpnDisclosure.value = accepted
+        prefs.edit().putBoolean(KEY_VPN_DISCLOSURE_ACCEPTED, accepted).apply()
+    }
+
     private fun loadAntiCensorshipSettings(): AntiCensorshipSettings {
         return AntiCensorshipSettings(
             fragment = FragmentConfig(
@@ -171,6 +181,7 @@ class AppPreferencesRepository(context: Context) {
     companion object {
         private const val KEY_ACTIVE_SERVER_ID = "active_server_id"
         private const val KEY_WIZARD_COMPLETED = "wizard_completed"
+        private const val KEY_VPN_DISCLOSURE_ACCEPTED = "vpn_disclosure_accepted"
 
         private const val KEY_FRAG_ENABLED = "frag_enabled"
         private const val KEY_FRAG_LENGTH = "frag_length"

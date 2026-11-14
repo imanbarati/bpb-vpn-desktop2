@@ -23,7 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.NetworkPing
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,6 +71,8 @@ fun ServersScreen(
     onPingServer: (ServerProfile) -> Unit,
     onPingAll: () -> Unit,
     onOpenAddDialog: () -> Unit,
+    onOpenQrScanner: () -> Unit = {},
+    onOpenSpeedTest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -126,40 +130,58 @@ fun ServersScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Auto Ping indicator & toggle
+                    // QR Scanner Quick Button
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.15f) else CardBackground)
-                            .border(1.dp, if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(12.dp))
-                            .clickable { onTogglePeriodicPing() }
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
-                            .testTag("auto_ping_toggle")
+                            .background(CyanPrimary.copy(alpha = 0.14f))
+                            .border(1.dp, CyanPrimary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .clickable { onOpenQrScanner() }
+                            .padding(horizontal = 9.dp, vertical = 8.dp)
+                            .testTag("scan_qr_button")
                     ) {
-                        Text(
-                            text = if (isPeriodicPingRunning) "Auto-Ping: 20s" else "Auto-Ping: OFF",
-                            color = if (isPeriodicPingRunning) CyanPrimary else TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = "Scan QR Code",
+                                tint = CyanPrimary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "QR",
+                                color = CyanPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
-                    // Sort By Latency toggle
+                    // Retrofit Speed Test Benchmark Button
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.15f) else CardBackground)
-                            .border(1.dp, if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(12.dp))
-                            .clickable { sortByLowestLatency = !sortByLowestLatency }
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
-                            .testTag("sort_by_latency_button")
+                            .background(EmeraldConnected.copy(alpha = 0.14f))
+                            .border(1.dp, EmeraldConnected.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .clickable { onOpenSpeedTest() }
+                            .padding(horizontal = 9.dp, vertical = 8.dp)
+                            .testTag("speed_test_button")
                     ) {
-                        Text(
-                            text = if (sortByLowestLatency) "⚡ Sorted" else "⚡ Sort",
-                            color = if (sortByLowestLatency) EmeraldConnected else TextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = "Network Speed Test",
+                                tint = EmeraldConnected,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Speed",
+                                color = EmeraldConnected,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     // Ping All Button
@@ -169,7 +191,7 @@ fun ServersScreen(
                             .background(CardBackground)
                             .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
                             .clickable { onPingAll() }
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .padding(horizontal = 9.dp, vertical = 8.dp)
                             .testTag("ping_all_button")
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -188,6 +210,48 @@ fun ServersScreen(
                             )
                         }
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Secondary Controls Strip: Auto-Ping + Latency Sort
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.15f) else CardBackground)
+                        .border(1.dp, if (isPeriodicPingRunning) CyanPrimary.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(10.dp))
+                        .clickable { onTogglePeriodicPing() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .testTag("auto_ping_toggle")
+                ) {
+                    Text(
+                        text = if (isPeriodicPingRunning) "Auto-Ping: 20s" else "Auto-Ping: OFF",
+                        color = if (isPeriodicPingRunning) CyanPrimary else TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.15f) else CardBackground)
+                        .border(1.dp, if (sortByLowestLatency) EmeraldConnected.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(10.dp))
+                        .clickable { sortByLowestLatency = !sortByLowestLatency }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .testTag("sort_by_latency_button")
+                ) {
+                    Text(
+                        text = if (sortByLowestLatency) "⚡ Sorted by Ping" else "⚡ Sort Lowest Ping",
+                        color = if (sortByLowestLatency) EmeraldConnected else TextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 

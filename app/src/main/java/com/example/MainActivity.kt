@@ -24,13 +24,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.AltRoute
+import androidx.compose.material.icons.automirrored.outlined.AltRoute
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.VpnLock
-import androidx.compose.material.icons.outlined.AltRoute
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
@@ -58,7 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.dialogs.AddServerDialog
+import com.example.ui.dialogs.QrScannerDialog
 import com.example.ui.dialogs.SetupWizardDialog
+import com.example.ui.dialogs.SpeedTestDialog
+import com.example.ui.dialogs.VpnConsentDialog
 import com.example.ui.screens.AntiCensorshipScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.LogsScreen
@@ -99,7 +102,7 @@ enum class NavigationTab(
     HOME("Home", Icons.Filled.VpnLock, Icons.Outlined.VpnLock, "nav_home"),
     SERVERS("Servers", Icons.Filled.Dns, Icons.Outlined.Dns, "nav_servers"),
     ANTI_DPI("Anti-DPI", Icons.Filled.Security, Icons.Outlined.Security, "nav_anti_dpi"),
-    ROUTING("Routing", Icons.Filled.AltRoute, Icons.Outlined.AltRoute, "nav_routing"),
+    ROUTING("Routing", Icons.AutoMirrored.Filled.AltRoute, Icons.AutoMirrored.Outlined.AltRoute, "nav_routing"),
     CONSOLE("Console", Icons.Filled.Terminal, Icons.Outlined.Terminal, "nav_console"),
     SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
 }
@@ -110,6 +113,9 @@ fun MainAppContent(viewModel: MainViewModel) {
     var currentTab by remember { mutableStateOf(NavigationTab.HOME) }
     var showAddServerDialog by remember { mutableStateOf(false) }
     var showSetupWizardDialog by remember { mutableStateOf(false) }
+    var showQrScannerDialog by remember { mutableStateOf(false) }
+    var showSpeedTestDialog by remember { mutableStateOf(false) }
+    var showVpnConsentDialog by remember { mutableStateOf(false) }
 
     val connectionState by viewModel.connectionState.collectAsState()
     val bandwidthStats by viewModel.bandwidthStats.collectAsState()
@@ -126,8 +132,10 @@ fun MainAppContent(viewModel: MainViewModel) {
     val mtuProbeStep by viewModel.mtuProbeStep.collectAsState()
     val isScanningMtu by viewModel.isScanningMtu.collectAsState()
     val isWizardCompleted by viewModel.isWizardCompleted.collectAsState()
+    val hasAcceptedVpnDisclosure by viewModel.hasAcceptedVpnDisclosure.collectAsState()
     val lowestLatencyServerId by viewModel.lowestLatencyServerId.collectAsState()
     val isPeriodicPingRunning by viewModel.isPeriodicPingRunning.collectAsState()
+    val speedTestSession by viewModel.speedTestSession.collectAsState()
     val batteryStats by viewModel.batteryStats.collectAsState()
 
     // Handle navigation from battery alert notification
@@ -150,12 +158,23 @@ fun MainAppContent(viewModel: MainViewModel) {
         }
     }
 
-    val handleToggleVpn: (android.content.Context) -> Unit = { ctx ->
+    val proceedWithVpnToggle: (android.content.Context) -> Unit = { ctx ->
         val prepareIntent = VpnService.prepare(ctx)
         if (prepareIntent != null) {
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
             viewModel.toggleVpn(ctx)
+        }
+    }
+
+    val handleToggleVpn: (android.content.Context) -> Unit = { ctx ->
+        if (connectionState.status == com.example.model.VpnStatus.CONNECTED ||
+            connectionState.status == com.example.model.VpnStatus.CONNECTING ||
+            hasAcceptedVpnDisclosure
+        ) {
+            proceedWithVpnToggle(ctx)
+        } else {
+            showVpnConsentDialog = true
         }
     }
 
@@ -242,7 +261,14 @@ fun MainAppContent(viewModel: MainViewModel) {
                             onToggleVpn = handleToggleVpn,
                             onNavigateToServers = { currentTab = NavigationTab.SERVERS },
                             onNavigateToAntiCensorship = { currentTab = NavigationTab.ANTI_DPI },
-                            onNavigateToRouting = { currentTab = NavigationTab.ROUTING }
+                            onNavigateToRouting = { currentTab = NavigationTab.ROUTING },
+                            onOpenSpeedTest = {
+                                showSpeedTestDialog = true
+                                if (!speedTestSession.isRunning && speedTestSession.results.isEmpty()) {
+                                    viewModel.startNetworkSpeedTest()
+                                }
+                            },
+                            onOpenQrScanner = { showQrScannerDialog = true }
                         )
                     }
                     NavigationTab.SERVERS -> {
@@ -260,7 +286,14 @@ fun MainAppContent(viewModel: MainViewModel) {
                             onDeleteServer = { server -> viewModel.deleteServer(server) },
                             onPingServer = { server -> viewModel.pingServer(server) },
                             onPingAll = { viewModel.pingAllServers() },
-                            onOpenAddDialog = { showAddServerDialog = true }
+                            onOpenAddDialog = { showAddServerDialog = true },
+                            onOpenQrScanner = { showQrScannerDialog = true },
+                            onOpenSpeedTest = {
+                                showSpeedTestDialog = true
+                                if (!speedTestSession.isRunning && speedTestSession.results.isEmpty()) {
+                                    viewModel.startNetworkSpeedTest()
+                                }
+                            }
                         )
                     }
                     NavigationTab.ANTI_DPI -> {
@@ -303,7 +336,8 @@ fun MainAppContent(viewModel: MainViewModel) {
                             batteryStats = batteryStats,
                             onUpdateGeneral = { viewModel.updateGeneral(it) },
                             onTriggerTestBatteryAlert = { viewModel.triggerTestBatteryAlert(context) },
-                            onLaunchSetupWizard = { showSetupWizardDialog = true }
+                            onLaunchSetupWizard = { showSetupWizardDialog = true },
+                            onReviewVpnDisclosure = { showVpnConsentDialog = true }
                         )
                     }
                 }
@@ -316,7 +350,58 @@ fun MainAppContent(viewModel: MainViewModel) {
         AddServerDialog(
             onDismiss = { showAddServerDialog = false },
             onImportUri = { uri -> viewModel.importFromUri(uri) },
-            onAddManual = { profile -> viewModel.addServer(profile) }
+            onAddManual = { profile -> viewModel.addServer(profile) },
+            onOpenQrScanner = { showQrScannerDialog = true }
+        )
+    }
+
+    // QR Code Scanner Dialog (CameraX + ML Kit + Zero-permission Photo Picker)
+    if (showQrScannerDialog) {
+        QrScannerDialog(
+            onDismiss = { showQrScannerDialog = false },
+            onQrConfigDecoded = { raw ->
+                val ok = viewModel.importFromUri(raw)
+                if (ok) {
+                    Toast.makeText(context, "Imported configuration from QR code", Toast.LENGTH_SHORT).show()
+                }
+                ok
+            }
+        )
+    }
+
+    // Network Speed Test Benchmark Dialog (Kotlin Coroutines + Retrofit)
+    if (showSpeedTestDialog) {
+        SpeedTestDialog(
+            session = speedTestSession,
+            onStartTest = { viewModel.startNetworkSpeedTest() },
+            onStopTest = { viewModel.stopNetworkSpeedTest() },
+            onSelectFastest = {
+                val selected = viewModel.selectFastestSpeedTestServer()
+                if (selected != null) {
+                    Toast.makeText(context, "Selected fastest node: ${selected.name}", Toast.LENGTH_SHORT).show()
+                    currentTab = NavigationTab.HOME
+                }
+            },
+            onSelectServerId = { id ->
+                val target = servers.firstOrNull { it.id == id }
+                if (target != null) {
+                    viewModel.selectServer(target)
+                    currentTab = NavigationTab.HOME
+                }
+            },
+            onDismiss = { showSpeedTestDialog = false }
+        )
+    }
+
+    // Prominent VpnService Disclosure Dialog (Google Play Policy Requirement)
+    if (showVpnConsentDialog) {
+        VpnConsentDialog(
+            onAccept = {
+                viewModel.acceptVpnDisclosure()
+                showVpnConsentDialog = false
+                proceedWithVpnToggle(context)
+            },
+            onDecline = { showVpnConsentDialog = false }
         )
     }
 

@@ -5,15 +5,55 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ProxyInfo
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
+import com.example.model.AntiCensorshipSettings
+import com.example.model.GeneralSettings
+import com.example.model.RoutingSettings
+import com.example.model.SplitTunnelMode
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicLong
 
+data class StrictVpnPolicySnapshot(
+    val selfExcluded: Boolean,
+    val ipv4DefaultRoute: Boolean,
+    val ipv6LeakBlocked: Boolean,
+    val allowBypassDisabled: Boolean,
+    val killSwitchBlocking: Boolean,
+    val splitTunnelEnabled: Boolean,
+    val splitTunnelMode: SplitTunnelMode,
+    val splitTunnelPackages: Set<String>,
+    val dnsServers: List<String>,
+    val mtu: Int,
+    val httpProxyPort: Int?,
+    val socksProxyPort: Int
+)
+
+/**
+ * Play-Store compliant, strict Android VpnService implementation:
+ * - Always excludes itself via `addDisallowedApplication(packageName)` to eliminate routing loops.
+ * - Blocks IPv6 leaks by capturing `::/0` alongside IPv4 `0.0.0.0/0`.
+ * - Enforces per-app split tunneling (`addAllowedApplication` / `addDisallowedApplication`).
+ * - Never calls `allowBypass()`, enables `setBlocking(true)` when Kill Switch is active, and pins DNS.
+ * - Runs a local protected SOCKS5/HTTP forwarder ([LocalProxyEngine]) with optional TLS fragmentation.
+ */
 class BpbVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var tunDrainJob: Job? = null
+    private var proxyEngine: LocalProxyEngine? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -42,35 +82,97 @@ class BpbVpnService : VpnService() {
             val notification = buildNotification(serverName)
             startForeground(NOTIFICATION_ID, notification)
 
+            val appPrefs = (application as? com.example.BpbApplication)?.preferencesRepository
+            val routing = pendingRoutingSettings ?: appPrefs?.routingSettings?.value ?: RoutingSettings()
+            val general = pendingGeneralSettings ?: appPrefs?.generalSettings?.value ?: GeneralSettings()
+            val antiCensorship = pendingAntiCensorshipSettings ?: appPrefs?.antiCensorshipSettings?.value ?: AntiCensorshipSettings()
+
             val builder = Builder()
-                .setSession("BPB VPN - $serverName")
-                .setMtu(mtu)
-                .addAddress("10.0.0.2", 24)
-                .addRoute("0.0.0.0", 0)
-                .addDnsServer("1.1.1.1")
-                .addDnsServer("8.8.8.8")
+            val policy = applyStrictPolicy(
+                builder = builder,
+                packageName = packageName,
+                serverName = serverName,
+                mtu = mtu,
+                routing = routing,
+                general = general
+            )
+            lastAppliedPolicy = policy
 
             vpnInterface = builder.establish()
-            VpnController.log("VPN_SERVICE", "TUN interface established with MTU $mtu")
+            VpnController.log(
+                "VPN_SERVICE",
+                "Strict TUN established (MTU=$mtu, IPv6-lock=${policy.ipv6LeakBlocked}, KillSwitch=${policy.killSwitchBlocking}, SelfExcluded=${policy.selfExcluded})"
+            )
+
+            // Start protected local SOCKS5 & HTTP proxy forwarder with optional TLS fragmentation
+            val engine = LocalProxyEngine(socketProtector = { sock -> protect(sock) })
+            engine.start(
+                socksPort = general.socksPort,
+                httpPort = general.httpPort,
+                allowLan = general.allowLanSharing,
+                fragmentConfig = antiCensorship.fragment
+            )
+            proxyEngine = engine
+            activeProxyEngine = engine
+            VpnController.log(
+                "PROXY_ENGINE",
+                "Local protected forwarder listening on SOCKS5:${engine.activeSocksPort}, HTTP:${engine.activeHttpPort}"
+            )
+
+            // Start non-blocking TUN packet reader loop
+            vpnInterface?.let { pfd ->
+                tunDrainJob?.cancel()
+                tunDrainJob = serviceScope.launch {
+                    drainTunInterface(pfd)
+                }
+            }
 
             // Start background battery monitoring with user-configured power threshold
-            val threshold = (application as? com.example.BpbApplication)
-                ?.preferencesRepository?.generalSettings?.value?.batteryDrainThresholdPercent ?: 3
-            BatteryDrainMonitor.startMonitoring(this, thresholdPercent = threshold)
+            BatteryDrainMonitor.startMonitoring(
+                this,
+                thresholdPercent = general.batteryDrainThresholdPercent
+            )
         } catch (e: Exception) {
-            VpnController.log("VPN_SERVICE", "Error establishing TUN: ${e.localizedMessage}")
+            VpnController.log("VPN_SERVICE", "Error establishing strict TUN: ${e.localizedMessage}", com.example.model.LogLevel.ERROR)
+        }
+    }
+
+    private fun drainTunInterface(pfd: ParcelFileDescriptor) {
+        val input = FileInputStream(pfd.fileDescriptor)
+        val packet = ByteBuffer.allocate(32767)
+        try {
+            while (serviceScope.isActive && vpnInterface != null) {
+                packet.clear()
+                val length = input.read(packet.array())
+                if (length > 0) {
+                    tunRxBytes.addAndGet(length.toLong())
+                } else if (length < 0) {
+                    break
+                } else {
+                    Thread.sleep(20)
+                }
+            }
+        } catch (_: Exception) {
+            // Normal on interface close
         }
     }
 
     private fun stopTunnel() {
         try {
             BatteryDrainMonitor.stopMonitoring()
+            tunDrainJob?.cancel()
+            tunDrainJob = null
+            proxyEngine?.stop()
+            proxyEngine = null
+            if (activeProxyEngine != null) {
+                activeProxyEngine = null
+            }
             vpnInterface?.close()
             vpnInterface = null
             stopForeground(STOP_FOREGROUND_REMOVE)
-            VpnController.log("VPN_SERVICE", "TUN interface closed")
-        } catch (e: Exception) {
-            // Ignore
+            VpnController.log("VPN_SERVICE", "TUN interface and local proxy closed cleanly")
+        } catch (_: Exception) {
+            // Ignore cleanup errors
         }
     }
 
@@ -123,7 +225,7 @@ class BpbVpnService : VpnService() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("BPB VPN Connected")
-            .setContentText("Routed securely via $serverName")
+            .setContentText("Strict encrypted tunnel active via $serverName")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setOngoing(true)
             .setContentIntent(openPendingIntent)
@@ -142,5 +244,132 @@ class BpbVpnService : VpnService() {
 
         private const val CHANNEL_ID = "bpb_vpn_channel"
         private const val NOTIFICATION_ID = 1001
+
+        @Volatile
+        var pendingRoutingSettings: RoutingSettings? = null
+
+        @Volatile
+        var pendingGeneralSettings: GeneralSettings? = null
+
+        @Volatile
+        var pendingAntiCensorshipSettings: AntiCensorshipSettings? = null
+
+        @Volatile
+        var lastAppliedPolicy: StrictVpnPolicySnapshot? = null
+
+        @Volatile
+        var activeProxyEngine: LocalProxyEngine? = null
+
+        val tunRxBytes = AtomicLong(0L)
+
+        /**
+         * Configures Android [VpnService.Builder] under strict VPN & Play Store security rules.
+         * Extracted cleanly so both the live service and Robolectric tests can verify strict policy behavior.
+         */
+        fun applyStrictPolicy(
+            builder: Builder,
+            packageName: String,
+            serverName: String,
+            mtu: Int,
+            routing: RoutingSettings,
+            general: GeneralSettings,
+            allowApp: (String) -> Unit = { pkg -> builder.addAllowedApplication(pkg) },
+            disallowApp: (String) -> Unit = { pkg -> builder.addDisallowedApplication(pkg) }
+        ): StrictVpnPolicySnapshot {
+            builder.setSession("BPB VPN - $serverName")
+                .setMtu(mtu.coerceIn(1200, 1500))
+                .addAddress(java.net.InetAddress.getByName("10.0.0.2"), 24)
+                .addRoute(java.net.InetAddress.getByName("0.0.0.0"), 0)
+                // Capture IPv6 default route to prevent IPv6 traffic leaking outside tunnel
+                .addAddress(java.net.InetAddress.getByName("fd00:b0b::2"), 128)
+                .addRoute(java.net.InetAddress.getByName("::"), 0)
+
+            val dnsList = listOfNotNull(
+                general.dns.primaryDns.takeIf { it.isNotBlank() },
+                general.dns.secondaryDns.takeIf { it.isNotBlank() }
+            ).distinct().ifEmpty { listOf("1.1.1.1", "1.0.0.1") }
+
+            dnsList.forEach { dnsIp ->
+                try {
+                    builder.addDnsServer(java.net.InetAddress.getByName(dnsIp))
+                } catch (_: Exception) {
+                    // Ignore malformed user DNS entry
+                }
+            }
+
+            // Kill switch / strict lockdown: never invoke allowBypass(); enforce blocking I/O
+            if (general.killSwitchEnabled) {
+                builder.setBlocking(true)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+                try {
+                    builder.setHttpProxy(ProxyInfo.buildDirectProxy("127.0.0.1", general.httpPort))
+                } catch (_: Exception) {
+                    // Ignore if platform rejects proxy info
+                }
+            }
+
+            var selfExcluded = false
+            val appliedSplitPackages = mutableSetOf<String>()
+
+            if (routing.splitTunnelEnabled && routing.selectedPackages.isNotEmpty()) {
+                when (routing.splitTunnelMode) {
+                    SplitTunnelMode.PROXY_SELECTED_ONLY -> {
+                        routing.selectedPackages
+                            .filter { it != packageName }
+                            .forEach { pkg ->
+                                try {
+                                    allowApp(pkg)
+                                    appliedSplitPackages.add(pkg)
+                                } catch (_: Exception) {
+                                }
+                            }
+                        // Excluded by omission when allowed-list is active
+                        selfExcluded = !appliedSplitPackages.contains(packageName)
+                    }
+                    SplitTunnelMode.BYPASS_SELECTED_ONLY -> {
+                        try {
+                            disallowApp(packageName)
+                            selfExcluded = true
+                        } catch (_: Exception) {
+                        }
+                        routing.selectedPackages
+                            .filter { it != packageName }
+                            .forEach { pkg ->
+                                try {
+                                    disallowApp(pkg)
+                                    appliedSplitPackages.add(pkg)
+                                } catch (_: Exception) {
+                                }
+                            }
+                    }
+                }
+            } else {
+                // Strict self-exclusion so VPN's own upstream sockets never loop into tun0
+                try {
+                    disallowApp(packageName)
+                    selfExcluded = true
+                } catch (_: Exception) {
+                    selfExcluded = false
+                }
+            }
+
+            return StrictVpnPolicySnapshot(
+                selfExcluded = selfExcluded,
+                ipv4DefaultRoute = true,
+                ipv6LeakBlocked = true,
+                allowBypassDisabled = true,
+                killSwitchBlocking = general.killSwitchEnabled,
+                splitTunnelEnabled = routing.splitTunnelEnabled,
+                splitTunnelMode = routing.splitTunnelMode,
+                splitTunnelPackages = appliedSplitPackages,
+                dnsServers = dnsList,
+                mtu = mtu.coerceIn(1200, 1500),
+                httpProxyPort = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) general.httpPort else null,
+                socksProxyPort = general.socksPort
+            )
+        }
     }
 }

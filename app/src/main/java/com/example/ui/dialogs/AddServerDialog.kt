@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -65,7 +66,8 @@ import com.example.ui.theme.TextSecondary
 fun AddServerDialog(
     onDismiss: () -> Unit,
     onImportUri: (String) -> Boolean,
-    onAddManual: (ServerProfile) -> Unit
+    onAddManual: (ServerProfile) -> Unit,
+    onOpenQrScanner: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -186,24 +188,47 @@ fun AddServerDialog(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Paste from clipboard button
+                    // Paste from clipboard & Scan QR Code row
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(CardBackground)
-                            .clickable {
-                                val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val item = clip.primaryClip?.getItemAt(0)?.text?.toString()
-                                if (!item.isNullOrBlank()) {
-                                    uriInput = item
-                                }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Paste from Clipboard", color = CyanPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CardBackground)
+                                .clickable {
+                                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val item = clip.primaryClip?.getItemAt(0)?.text?.toString()
+                                    if (!item.isNullOrBlank()) {
+                                        uriInput = item
+                                    }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Paste Clipboard", color = CyanPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CyanPrimary.copy(alpha = 0.14f))
+                                .border(1.dp, CyanPrimary.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onDismiss()
+                                    onOpenQrScanner()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .testTag("dialog_scan_qr_button")
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan QR Code", tint = CyanPrimary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Scan QR", color = CyanPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))

@@ -53,23 +53,12 @@ object CleanIpScanner {
                     rtt = System.currentTimeMillis() - start
                     reachable = true
                 }
-            } catch (e: Exception) {
-                // If socket connect fails due to sandbox or timeout, compute realistic latency
-                val base = when {
-                    location.contains("Frankfurt") -> 75L
-                    location.contains("Amsterdam") -> 82L
-                    location.contains("WARP") -> 48L
-                    location.contains("Edge EU") -> 95L
-                    location.contains("London") -> 89L
-                    location.contains("Stockholm") -> 105L
-                    location.contains("Zurich") -> 92L
-                    else -> 135L
-                }
-                rtt = base + (0..15).random()
-                reachable = true
+            } catch (_: Exception) {
+                reachable = false
+                rtt = -1L
             }
 
-            delay(200)
+            delay(50)
 
             val quality = when {
                 !reachable -> IpQuality.UNREACHABLE

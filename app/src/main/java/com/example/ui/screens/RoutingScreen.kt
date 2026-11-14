@@ -18,7 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.AltRoute
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -133,7 +133,7 @@ fun RoutingScreen(
                 selected = selectedTab == 0,
                 onClick = { selectedTab = 0 },
                 text = { Text("Routing Mode", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
-                icon = { Icon(Icons.Default.AltRoute, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                icon = { Icon(Icons.AutoMirrored.Filled.AltRoute, contentDescription = null, modifier = Modifier.size(16.dp)) }
             )
             Tab(
                 selected = selectedTab == 1,
