@@ -275,7 +275,9 @@ fun ServersScreen(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 80.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("servers_list")
                 ) {
                     items(filteredServers, key = { it.id }) { server ->
                         ServerCard(

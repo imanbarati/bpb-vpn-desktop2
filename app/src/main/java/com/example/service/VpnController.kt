@@ -38,6 +38,24 @@ object VpnController {
     private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val logs: StateFlow<List<LogEntry>> = _logs.asStateFlow()
 
+    @Volatile
+    var connectDelayMs: Long = 1200L
+    @Volatile
+    var disconnectDelayMs: Long = 500L
+    @Volatile
+    var requireBackendProbe: Boolean = false
+
+    fun resetForTesting() {
+        statsJob?.cancel()
+        statsJob = null
+        connectDelayMs = 1200L
+        disconnectDelayMs = 500L
+        requireBackendProbe = false
+        _connectionState.value = ConnectionState(status = VpnStatus.DISCONNECTED)
+        _bandwidthStats.value = BandwidthStats()
+        _logs.value = emptyList()
+    }
+
     fun log(tag: String, message: String, level: LogLevel = LogLevel.INFO) {
         val entry = LogEntry(tag = tag, level = level, message = message)
         val current = _logs.value.toMutableList()
@@ -70,31 +88,57 @@ object VpnController {
             activeProfile = server
         )
 
-        log("VPN_SERVICE", "Initiating secure anti-censorship tunnel...", LogLevel.INFO)
-        log("CORE", "Selected server: ${server.name} (${server.protocol} via ${server.network.uppercase()})", LogLevel.INFO)
+        var effectiveServer = server
+        var effectiveAntiCensorship = antiCensorship
 
-        if (antiCensorship.fragment.enabled) {
-            log("ANTI_DPI", "TLS Fragmentation enabled [packets=${antiCensorship.fragment.packets}, len=${antiCensorship.fragment.length}, interval=${antiCensorship.fragment.interval}]", LogLevel.INFO)
+        if (server.protocol == com.example.model.ProtocolType.FIREFOX_VPN) {
+            val activeAcc = FreeVpnBackendAdapter.firefoxAccountPool.acquireActiveAccount()
+            if (activeAcc == null) {
+                log("FIREFOX_VPN", "All free-tier Firefox VPN accounts exhausted or rate-limited", LogLevel.ERROR)
+                _connectionState.value = ConnectionState(
+                    status = VpnStatus.ERROR,
+                    activeProfileId = server.id,
+                    activeProfile = server,
+                    errorMessage = "All Firefox VPN free-tier accounts exhausted"
+                )
+                return
+            }
+            effectiveServer = server.copy(uuid = activeAcc.bearerToken)
+            val remainingGb = activeAcc.remainingBytes / (1024L * 1024L * 1024L)
+            log("FIREFOX_VPN", "Bound Fastly H2/H3 proxy to ${activeAcc.label} (~${remainingGb} GB left)", LogLevel.INFO)
         }
-        if (antiCensorship.noise.enabled) {
-            log("ANTI_DPI", "Noise injection active [count=${antiCensorship.noise.packetCount}, payload=${antiCensorship.noise.payloadType}]", LogLevel.INFO)
+
+        if (server.protocol == com.example.model.ProtocolType.REVERSE_TUNNEL) {
+            val chosenArm = FreeVpnBackendAdapter.reverseTunnelPolicy.selectOptimalArm()
+            effectiveAntiCensorship = FreeVpnBackendAdapter.reverseTunnelPolicy.applyArmToSettings(chosenArm, antiCensorship)
+            log("REVERSE_POLICY", "Adaptive policy selected strategy [${chosenArm.label}] (frag=${chosenArm.fragmentLength}, noise=${chosenArm.noisePackets})", LogLevel.INFO)
         }
-        if (antiCensorship.warp.enabled) {
+
+        log("VPN_SERVICE", "Initiating secure anti-censorship tunnel...", LogLevel.INFO)
+        log("CORE", "Selected server: ${effectiveServer.name} (${effectiveServer.protocol} via ${effectiveServer.network.uppercase()})", LogLevel.INFO)
+
+        if (effectiveAntiCensorship.fragment.enabled) {
+            log("ANTI_DPI", "TLS Fragmentation enabled [packets=${effectiveAntiCensorship.fragment.packets}, len=${effectiveAntiCensorship.fragment.length}, interval=${effectiveAntiCensorship.fragment.interval}]", LogLevel.INFO)
+        }
+        if (effectiveAntiCensorship.noise.enabled) {
+            log("ANTI_DPI", "Noise injection active [count=${effectiveAntiCensorship.noise.packetCount}, payload=${effectiveAntiCensorship.noise.payloadType}]", LogLevel.INFO)
+        }
+        if (effectiveAntiCensorship.warp.enabled) {
             log("WARP", "Cloudflare WARP+ outbound chained over endpoint", LogLevel.INFO)
         }
-        if (antiCensorship.tor.enabled) {
-            log("TOR", "Tor bridge integration configured (${antiCensorship.tor.bridgeType})", LogLevel.INFO)
+        if (effectiveAntiCensorship.tor.enabled) {
+            log("TOR", "Tor bridge integration configured (${effectiveAntiCensorship.tor.bridgeType})", LogLevel.INFO)
         }
 
-        val configJson = ConfigGenerator.generateXrayConfig(server, antiCensorship, routing, general)
+        val configJson = ConfigGenerator.generateXrayConfig(effectiveServer, effectiveAntiCensorship, routing, general)
         log("XRAY", "Generated core configuration JSON (${configJson.length} bytes)", LogLevel.DEBUG)
 
         // Launch Foreground VpnService
         val intent = Intent(context, BpbVpnService::class.java).apply {
             action = BpbVpnService.ACTION_START
-            putExtra(BpbVpnService.EXTRA_SERVER_NAME, server.name)
-            putExtra(BpbVpnService.EXTRA_SERVER_ID, server.id)
-            putExtra(BpbVpnService.EXTRA_MTU, antiCensorship.mtu.mtu)
+            putExtra(BpbVpnService.EXTRA_SERVER_NAME, effectiveServer.name)
+            putExtra(BpbVpnService.EXTRA_SERVER_ID, effectiveServer.id)
+            putExtra(BpbVpnService.EXTRA_MTU, effectiveAntiCensorship.mtu.mtu)
         }
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -106,16 +150,32 @@ object VpnController {
             log("VPN_SERVICE", "Failed to start VpnService: ${e.localizedMessage}", LogLevel.ERROR)
             _connectionState.value = ConnectionState(
                 status = VpnStatus.ERROR,
-                activeProfileId = server.id,
-                activeProfile = server,
+                activeProfileId = effectiveServer.id,
+                activeProfile = effectiveServer,
                 errorMessage = e.localizedMessage
             )
             return
         }
 
         scope.launch {
-            delay(1200)
-            log("TUN", "Virtual network interface tun0 opened with MTU ${antiCensorship.mtu.mtu}", LogLevel.INFO)
+            if (requireBackendProbe) {
+                val probe = FreeVpnBackendAdapter.probeAndPrepareBackend(effectiveServer, timeoutMs = 1500)
+                if (!probe.reachable) {
+                    log("PROBE", "Backend handshake failed for ${effectiveServer.address}:${effectiveServer.port} (${probe.error})", LogLevel.ERROR)
+                    _connectionState.value = ConnectionState(
+                        status = VpnStatus.ERROR,
+                        activeProfileId = effectiveServer.id,
+                        activeProfile = effectiveServer,
+                        errorMessage = probe.error ?: "Backend endpoint unreachable"
+                    )
+                    return@launch
+                }
+                log("PROBE", "Backend verified reachable in ${probe.rttMs}ms${probe.serverBanner?.let { " [$it]" } ?: ""}", LogLevel.INFO)
+            } else if (connectDelayMs > 0) {
+                delay(connectDelayMs)
+            }
+
+            log("TUN", "Virtual network interface tun0 opened with MTU ${effectiveAntiCensorship.mtu.mtu}", LogLevel.INFO)
             log("ROUTING", "Routing mode: ${routing.mode.name}", LogLevel.INFO)
             if (routing.splitTunnelEnabled) {
                 log("ROUTING", "Per-app split tunneling: ${routing.selectedPackages.size} packages in ${routing.splitTunnelMode.name}", LogLevel.INFO)
@@ -125,12 +185,12 @@ object VpnController {
 
             _connectionState.value = ConnectionState(
                 status = VpnStatus.CONNECTED,
-                activeProfileId = server.id,
-                activeProfile = server,
+                activeProfileId = effectiveServer.id,
+                activeProfile = effectiveServer,
                 connectedAt = System.currentTimeMillis()
             )
 
-            startBandwidthTelemetry(server)
+            startBandwidthTelemetry(effectiveServer)
         }
     }
 
@@ -153,7 +213,9 @@ object VpnController {
         statsJob = null
 
         scope.launch {
-            delay(500)
+            if (disconnectDelayMs > 0) {
+                delay(disconnectDelayMs)
+            }
             log("TUN", "tun0 interface released. Route tables restored.", LogLevel.INFO)
             log("CORE", "Core process stopped cleanly.", LogLevel.INFO)
 

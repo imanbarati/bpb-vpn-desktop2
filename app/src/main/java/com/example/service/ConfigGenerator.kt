@@ -64,22 +64,31 @@ object ConfigGenerator {
         val proxyOutbound = buildPrimaryOutbound(server, antiCensorship)
         outbounds.put(proxyOutbound)
 
-        // Direct Outbound with TLS Fragment if enabled
+        // Direct Outbound
         val directOutbound = JSONObject().apply {
             put("tag", "direct")
             put("protocol", "freedom")
             put("settings", JSONObject().apply {
                 put("domainStrategy", "UseIP")
-                if (antiCensorship.fragment.enabled) {
+            })
+        }
+        outbounds.put(directOutbound)
+
+        // Fragment Dialer Outbound (referenced by sockopt.dialerProxy)
+        if (antiCensorship.fragment.enabled) {
+            outbounds.put(JSONObject().apply {
+                put("tag", "fragment-dialer")
+                put("protocol", "freedom")
+                put("settings", JSONObject().apply {
+                    put("domainStrategy", "UseIP")
                     put("fragment", JSONObject().apply {
                         put("packets", antiCensorship.fragment.packets)
                         put("length", antiCensorship.fragment.length)
                         put("interval", antiCensorship.fragment.interval)
                     })
-                }
+                })
             })
         }
-        outbounds.put(directOutbound)
 
         // Block Outbound
         outbounds.put(JSONObject().apply {
@@ -186,6 +195,16 @@ object ConfigGenerator {
         }
         root.put("routing", routingObj)
 
+        // 6. Reverse Tunnel topology (when ProtocolType.REVERSE_TUNNEL is active)
+        if (server.protocol == ProtocolType.REVERSE_TUNNEL) {
+            root.put("reverse", JSONObject().apply {
+                put("bridges", JSONArray().put(JSONObject().apply {
+                    put("tag", "reverse-bridge")
+                    put("domain", server.serverName.ifEmpty { server.address })
+                }))
+            })
+        }
+
         return root.toString(2)
     }
 
@@ -266,11 +285,39 @@ object ConfigGenerator {
                     }))
                 })
             }
+            ProtocolType.FIREFOX_VPN -> {
+                outbound.put("protocol", "http")
+                outbound.put("settings", JSONObject().apply {
+                    put("servers", JSONArray().put(JSONObject().apply {
+                        put("address", targetAddress)
+                        put("port", server.port)
+                        if (server.uuid.isNotBlank()) {
+                            put("users", JSONArray().put(JSONObject().apply {
+                                put("user", "fxvpn")
+                                put("pass", server.uuid)
+                            }))
+                        }
+                    }))
+                })
+            }
+            ProtocolType.REVERSE_TUNNEL -> {
+                outbound.put("protocol", "vless")
+                outbound.put("settings", JSONObject().apply {
+                    put("vnext", JSONArray().put(JSONObject().apply {
+                        put("address", targetAddress)
+                        put("port", server.port)
+                        put("users", JSONArray().put(JSONObject().apply {
+                            put("id", server.uuid.ifEmpty { "revtun-policy-o4-edge" })
+                            put("encryption", "none")
+                        }))
+                    }))
+                })
+            }
         }
 
         // Stream Settings
         val streamSettings = JSONObject()
-        streamSettings.put("network", server.network)
+        streamSettings.put("network", if (server.protocol == ProtocolType.FIREFOX_VPN) "h2" else server.network)
         streamSettings.put("security", server.security)
 
         if (server.network == "ws") {
@@ -284,12 +331,20 @@ object ConfigGenerator {
             streamSettings.put("grpcSettings", JSONObject().apply {
                 put("serviceName", server.path.removePrefix("/"))
             })
+        } else if (server.network == "h2" || server.protocol == ProtocolType.FIREFOX_VPN) {
+            streamSettings.put("httpSettings", JSONObject().apply {
+                put("path", server.path.ifEmpty { "/fxvpn-h3-tunnel" })
+                put("host", JSONArray().put(server.serverName.ifEmpty { server.address }))
+            })
         }
 
         if (server.security == "tls") {
             streamSettings.put("tlsSettings", JSONObject().apply {
                 put("serverName", server.serverName.ifEmpty { server.address })
                 put("fingerprint", server.fingerprint)
+                if (server.protocol == ProtocolType.FIREFOX_VPN) {
+                    put("alpn", JSONArray().put("h3").put("h2").put("http/1.1"))
+                }
                 put("allowInsecure", false)
             })
         } else if (server.security == "reality") {

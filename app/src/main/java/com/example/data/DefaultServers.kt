@@ -100,6 +100,37 @@ object DefaultServers {
             countryCode = "CA",
             pingMs = 185,
             isCustom = false
+        ),
+        ServerProfile(
+            id = "firefox-fastly-free-edge",
+            name = "Firefox VPN Fastly Free Edge (H2/H3)",
+            protocol = ProtocolType.FIREFOX_VPN,
+            address = "proxy.fastly-edge.mozilla-relay.net",
+            port = 443,
+            uuid = "fxa-free-tier-slot-1",
+            serverName = "proxy.fastly-edge.mozilla-relay.net",
+            network = "h2",
+            security = "tls",
+            path = "/fxvpn-h3-tunnel",
+            countryCode = "US",
+            pingMs = 76,
+            isFavorite = true,
+            isCustom = false
+        ),
+        ServerProfile(
+            id = "robot-reverse-tunnel-relay",
+            name = "Adaptive Reverse Tunneler (Robot Relay)",
+            protocol = ProtocolType.REVERSE_TUNNEL,
+            address = "relay.redesigned-tunnel.net",
+            port = 443,
+            uuid = "revtun-policy-o4-edge",
+            serverName = "relay.redesigned-tunnel.net",
+            network = "ws",
+            security = "tls",
+            path = "/reverse-bridge",
+            countryCode = "DE",
+            pingMs = 82,
+            isCustom = false
         )
     )
 }

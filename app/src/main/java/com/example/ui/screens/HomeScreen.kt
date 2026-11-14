@@ -214,8 +214,13 @@ fun HomeScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
+                    val backendHint = when (selectedServer?.protocol) {
+                        com.example.model.ProtocolType.FIREFOX_VPN -> "Mozilla/Fastly H2+H3 Free Pool"
+                        com.example.model.ProtocolType.REVERSE_TUNNEL -> "Adaptive Reverse Tunneler"
+                        else -> selectedServer?.address ?: "Tap to choose"
+                    }
                     Text(
-                        text = "${selectedServer?.protocol?.name ?: "VLESS"} • ${selectedServer?.address ?: "Tap to choose"}",
+                        text = "${selectedServer?.protocol?.name?.replace("_", " ") ?: "VLESS"} • $backendHint",
                         color = TextSecondary,
                         fontSize = 12.sp,
                         maxLines = 1,

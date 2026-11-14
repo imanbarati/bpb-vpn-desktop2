@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -131,12 +133,14 @@ fun AddServerDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Import URI / Link", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        text = { Text("Import URI / Link", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                        modifier = Modifier.testTag("tab_import_uri")
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Manual Config", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        text = { Text("Manual Config", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                        modifier = Modifier.testTag("tab_manual_config")
                     )
                 }
 
@@ -145,7 +149,7 @@ fun AddServerDialog(
                 if (selectedTab == 0) {
                     // Import URI tab
                     Text(
-                        text = "Paste any vless://, vmess://, trojan://, ss://, warp:// link or Cloudflare Worker URL:",
+                        text = "Paste vless://, vmess://, trojan://, ss://, warp://, fxvpn://, revtun:// or Cloudflare Worker URL:",
                         color = TextSecondary,
                         fontSize = 12.sp
                     )
@@ -158,7 +162,7 @@ fun AddServerDialog(
                             uriInput = it
                             uriError = null
                         },
-                        placeholder = { Text("vless://... or https://worker.dev", color = TextMuted, fontSize = 12.sp) },
+                        placeholder = { Text("vless://, fxvpn://, revtun:// or https://worker.dev", color = TextMuted, fontSize = 12.sp) },
                         minLines = 3,
                         maxLines = 5,
                         shape = RoundedCornerShape(12.dp),
@@ -241,6 +245,49 @@ fun AddServerDialog(
                     }
                 } else {
                     // Manual Config form
+                    Text(
+                        text = "Backend Protocol",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_protocol_row")
+                    ) {
+                        items(ProtocolType.entries.toTypedArray()) { protocol ->
+                            val isSelected = selectedProtocol == protocol
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyanPrimary.copy(alpha = 0.2f) else CardBackground)
+                                    .border(1.dp, if (isSelected) CyanPrimary else CardBorder, RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        selectedProtocol = protocol
+                                        if (protocol == ProtocolType.FIREFOX_VPN) {
+                                            network = "h2"
+                                        } else if (protocol == ProtocolType.REVERSE_TUNNEL) {
+                                            network = "ws"
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    .testTag("manual_protocol_${protocol.name}")
+                            ) {
+                                Text(
+                                    text = protocol.name.replace("_", " "),
+                                    color = if (isSelected) CyanPrimary else TextSecondary,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
@@ -252,7 +299,9 @@ fun AddServerDialog(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_name_input")
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -268,7 +317,9 @@ fun AddServerDialog(
                             focusedTextColor = TextPrimary,
                             unfocusedTextColor = TextPrimary
                         ),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("manual_host_input")
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -372,7 +423,9 @@ fun AddServerDialog(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = CyanPrimary, contentColor = Color(0xFF00363D)),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("save_node_button")
                         ) {
                             Text("Save Node", fontWeight = FontWeight.Bold)
                         }

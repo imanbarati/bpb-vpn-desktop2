@@ -37,5 +37,7 @@ enum class ProtocolType {
     SHADOWSOCKS,
     WARP,
     CLOUDFLARE_WORKER,
-    PSIPHON
+    PSIPHON,
+    FIREFOX_VPN,
+    REVERSE_TUNNEL
 }

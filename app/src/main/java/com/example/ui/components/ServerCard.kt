@@ -83,6 +83,8 @@ fun ServerCard(
         ProtocolType.CLOUDFLARE_WORKER -> Color(0xFFF6821F)
         ProtocolType.SHADOWSOCKS -> Color(0xFF00B0FF)
         ProtocolType.PSIPHON -> Color(0xFF26A69A)
+        ProtocolType.FIREFOX_VPN -> Color(0xFFFF7139)
+        ProtocolType.REVERSE_TUNNEL -> Color(0xFFB388FF)
     }
 
     val flagEmoji = when (server.countryCode.uppercase()) {

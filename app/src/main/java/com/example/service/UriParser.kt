@@ -18,6 +18,8 @@ object UriParser {
             trimmed.startsWith("trojan://", ignoreCase = true) -> parseTrojan(trimmed)
             trimmed.startsWith("ss://", ignoreCase = true) -> parseShadowsocks(trimmed)
             trimmed.startsWith("warp://", ignoreCase = true) -> parseWarp(trimmed)
+            trimmed.startsWith("fxvpn://", ignoreCase = true) -> parseFirefoxVpn(trimmed)
+            trimmed.startsWith("revtun://", ignoreCase = true) -> parseReverseTunnel(trimmed)
             trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true) -> parseWorkerUrl(trimmed)
             else -> null
         }
@@ -147,8 +149,10 @@ object UriParser {
                 val method = methodPass[0]
                 val password = if (methodPass.size > 1) methodPass[1] else ""
 
-                val hostPort = parts[1].split(":", limit = 2)
+                val rawHostPort = parts[1].substringBefore("/").substringBefore("?")
+                val hostPort = rawHostPort.split(":", limit = 2)
                 val host = hostPort[0]
+                if (host.isBlank()) return null
                 val port = if (hostPort.size > 1) hostPort[1].toIntOrNull() ?: 8388 else 8388
 
                 ServerProfile(
@@ -179,6 +183,66 @@ object UriParser {
             serverName = "engage.cloudflareclient.com",
             isCustom = true
         )
+    }
+
+    private fun parseFirefoxVpn(uriStr: String): ServerProfile? {
+        return try {
+            val hashSplit = uriStr.split("#", limit = 2)
+            val name = if (hashSplit.size > 1 && hashSplit[1].isNotBlank()) decode(hashSplit[1]) else "Firefox VPN Edge"
+            val uri = Uri.parse(hashSplit[0])
+            val host = uri.host ?: return null
+            val port = if (uri.port > 0) uri.port else 443
+            val token = uri.userInfo ?: uri.getQueryParameter("token") ?: "fxa-free-tier"
+            val transport = uri.getQueryParameter("type") ?: uri.getQueryParameter("transport") ?: "h2"
+            val sni = uri.getQueryParameter("sni") ?: host
+            val path = uri.getQueryParameter("path") ?: "/fxvpn-tunnel"
+
+            ServerProfile(
+                name = name,
+                protocol = ProtocolType.FIREFOX_VPN,
+                address = host,
+                port = port,
+                uuid = token,
+                network = transport,
+                security = uri.getQueryParameter("security") ?: "tls",
+                serverName = sni,
+                path = path,
+                fingerprint = uri.getQueryParameter("fp") ?: "firefox",
+                isCustom = true
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun parseReverseTunnel(uriStr: String): ServerProfile? {
+        return try {
+            val hashSplit = uriStr.split("#", limit = 2)
+            val name = if (hashSplit.size > 1 && hashSplit[1].isNotBlank()) decode(hashSplit[1]) else "Adaptive Reverse Tunneler"
+            val uri = Uri.parse(hashSplit[0])
+            val host = uri.host ?: return null
+            val port = if (uri.port > 0) uri.port else 443
+            val secret = uri.userInfo ?: uri.getQueryParameter("secret") ?: "revtun-policy-edge"
+            val transport = uri.getQueryParameter("type") ?: uri.getQueryParameter("mode") ?: "ws"
+            val sni = uri.getQueryParameter("sni") ?: host
+            val path = uri.getQueryParameter("path") ?: "/reverse-bridge"
+
+            ServerProfile(
+                name = name,
+                protocol = ProtocolType.REVERSE_TUNNEL,
+                address = host,
+                port = port,
+                uuid = secret,
+                network = transport,
+                security = uri.getQueryParameter("security") ?: "tls",
+                serverName = sni,
+                path = path,
+                fingerprint = uri.getQueryParameter("fp") ?: "chrome",
+                isCustom = true
+            )
+        } catch (e: Exception) {
+            null
+        }
     }
 
     private fun parseWorkerUrl(url: String): ServerProfile? {
